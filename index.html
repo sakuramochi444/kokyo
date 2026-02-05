@@ -2,31 +2,53 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>公共・政治経済 ノート完全攻略（修正版）</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>公共・政治経済マスター</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Zen Kaku Gothic New"', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#4F46E5', // Indigo 600
+                        secondary: '#10B981', // Emerald 500
+                        accent: '#F59E0B', // Amber 500
+                        bg: '#F3F4F6', // Gray 100
+                        card: '#FFFFFF',
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        body { font-family: 'Noto Sans JP', sans-serif; }
-        .fade-in { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        /* スクロールバーのカスタマイズ */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        body { background-color: #F3F4F6; color: #1F2937; -webkit-tap-highlight-color: transparent; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        .slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        /* カスタムスクロールバー */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800 h-screen overflow-hidden">
-    <div id="root" class="h-full"></div>
+<body>
+    <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useCallback } = React;
 
-        // --- 全185問の問題データ ---
+        // --- クイズデータ (全185問) ---
+        // ※ 以前のデータをそのまま使用し、データ構造を維持します。
         const quizDatabase = [
             // --- 第1編 第3章 人間の尊厳 (P1) ---
             { category: "1. 人間の尊厳と平等 (P1)", question: "自分にとって望ましい死のあり方を、判断能力があるうちに文書などで生前に意思表明しておくことを何といいますか？", answer: "リビング・ウィル", options: ["リビング・ウィル", "インフォームド・コンセント", "パターナリズム", "ホスピス"], note: "P.1 尊厳死宣言ともいう" },
@@ -198,36 +220,67 @@
             return newArray;
         };
 
+        // --- メインアプリコンポーネント ---
         const QuizApp = () => {
-            const [gameState, setGameState] = useState('menu'); // menu, playing, result
+            const [gameState, setGameState] = useState('menu'); // menu, playing, result, review
             const [selectedCategory, setSelectedCategory] = useState(null);
             const [questions, setQuestions] = useState([]);
             const [currentIndex, setCurrentIndex] = useState(0);
             const [score, setScore] = useState(0);
             const [showAnswer, setShowAnswer] = useState(false);
             const [userSelected, setUserSelected] = useState(null);
-            
-            // 重要: モード設定 (choice: 選択式, think: 記述/暗記式)
             const [studyMode, setStudyMode] = useState('choice'); 
             const [choicesHidden, setChoicesHidden] = useState(false);
+            const [completedQuestions, setCompletedQuestions] = useState([]); // IDではなくインデックスで管理(簡易的)
+            const [wrongQuestions, setWrongQuestions] = useState([]); // 間違えた問題リスト
 
-            // カテゴリ一覧抽出
+            // 初回ロード時に保存データを読み込み
+            useEffect(() => {
+                const saved = localStorage.getItem('civics_completed');
+                if (saved) setCompletedQuestions(JSON.parse(saved));
+                
+                const savedWrong = localStorage.getItem('civics_wrong');
+                if (savedWrong) setWrongQuestions(JSON.parse(savedWrong));
+            }, []);
+
+            // 完了データを保存
+            const saveProgress = (questionText, isCorrect) => {
+                if (isCorrect) {
+                    const newCompleted = [...new Set([...completedQuestions, questionText])];
+                    setCompletedQuestions(newCompleted);
+                    localStorage.setItem('civics_completed', JSON.stringify(newCompleted));
+                } else {
+                    const newWrong = [...new Set([...wrongQuestions, questionText])];
+                    setWrongQuestions(newWrong);
+                    localStorage.setItem('civics_wrong', JSON.stringify(newWrong));
+                }
+            };
+            
+            // 間違えた問題を正解したらリストから削除
+            const removeWrong = (questionText) => {
+                const newWrong = wrongQuestions.filter(q => q !== questionText);
+                setWrongQuestions(newWrong);
+                localStorage.setItem('civics_wrong', JSON.stringify(newWrong));
+            };
+
             const categories = useMemo(() => [...new Set(quizDatabase.map(q => q.category))], []);
 
-            // クイズ開始処理
-            const startQuiz = (category, mode) => {
+            const startQuiz = (modeType, category = 'ALL', isReview = false) => {
                 let qs = [];
-                if (category === 'ALL') {
+                if (isReview) {
+                    qs = quizDatabase.filter(q => wrongQuestions.includes(q.question));
+                    if (qs.length === 0) {
+                        alert("間違えた問題はありません！");
+                        return;
+                    }
+                } else if (category === 'ALL') {
                     qs = [...quizDatabase];
                 } else {
                     qs = quizDatabase.filter(q => q.category === category);
                 }
                 
-                // 問題順シャッフル
-                qs = shuffleArray(qs);
-                
-                // 各問題の選択肢もシャッフルする
-                qs = qs.map(q => ({
+                // シャッフル
+                qs = shuffleArray(qs).map(q => ({
                     ...q,
                     shuffledOptions: shuffleArray(q.options)
                 }));
@@ -237,17 +290,25 @@
                 setScore(0);
                 setShowAnswer(false);
                 setUserSelected(null);
-                setSelectedCategory(category === 'ALL' ? '全問チャレンジ' : category);
-                setStudyMode(mode);
-                setChoicesHidden(mode === 'think'); // 記述モードなら最初は隠す
+                setSelectedCategory(isReview ? '弱点克服' : (category === 'ALL' ? '全問チャレンジ' : category));
+                setStudyMode(modeType);
+                setChoicesHidden(modeType === 'think');
                 setGameState('playing');
             };
 
             const handleAnswer = (option) => {
                 setUserSelected(option);
                 setShowAnswer(true);
-                if (option === questions[currentIndex].answer) {
+                const isCorrect = option === questions[currentIndex].answer;
+                
+                if (isCorrect) {
                     setScore(prev => prev + 1);
+                    saveProgress(questions[currentIndex].question, true);
+                    if (selectedCategory === '弱点克服') {
+                        removeWrong(questions[currentIndex].question);
+                    }
+                } else {
+                    saveProgress(questions[currentIndex].question, false);
                 }
             };
 
@@ -260,201 +321,274 @@
                     setCurrentIndex(prev => prev + 1);
                     setShowAnswer(false);
                     setUserSelected(null);
-                    setChoicesHidden(studyMode === 'think'); // 記述モードなら次の問題も隠す
+                    setChoicesHidden(studyMode === 'think');
                 } else {
                     setGameState('result');
                 }
             };
+            
+            const restart = () => {
+                setGameState('menu');
+            };
 
-            // --- メニュー画面 ---
+            // 達成率計算
+            const progressPercent = Math.round((completedQuestions.length / quizDatabase.length) * 100);
+
+            // --- コンポーネント: ヘッダー ---
+            const Header = () => (
+                <div className="bg-white/90 backdrop-blur-md sticky top-0 z-20 shadow-sm px-4 py-3 flex justify-between items-center">
+                    <div className="font-bold text-lg text-primary tracking-tight">公共・政治経済マスター</div>
+                    <div className="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                        達成率: {progressPercent}%
+                    </div>
+                </div>
+            );
+
+            // --- 画面: メニュー ---
             if (gameState === 'menu') {
                 return (
-                    <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
-                        <header className="bg-indigo-600 text-white p-4 shadow-md z-10">
-                            <h1 className="text-xl md:text-2xl font-bold text-center">公共・政治経済 完全攻略</h1>
-                            <p className="text-center text-indigo-200 text-sm">全{quizDatabase.length}問 - ノート完全網羅</p>
-                        </header>
+                    <div className="min-h-screen bg-bg font-sans pb-10">
+                        <Header />
                         
-                        <div className="flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full">
-                            {/* モード説明 */}
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
-                                <h2 className="font-bold text-slate-700 mb-2">学習モードを選択してスタート</h2>
-                                <div className="grid grid-cols-2 gap-3 mb-2">
-                                    <div className={`p-3 rounded-lg border-2 text-center text-sm ${studyMode === 'choice' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-400'}`}>
-                                        <div className="font-bold">① 選択肢モード</div>
-                                        <div className="text-xs">最初から選択肢を表示</div>
-                                    </div>
-                                    <div className={`p-3 rounded-lg border-2 text-center text-sm ${studyMode === 'think' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-400'}`}>
-                                        <div className="font-bold">② 記述(暗記)モード</div>
-                                        <div className="text-xs">最初は選択肢を隠す</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-2xl shadow-lg mb-6 text-white">
-                                <h2 className="text-lg font-bold mb-1 flex items-center">
-                                    <span className="bg-yellow-400 text-indigo-900 px-2 py-0.5 rounded text-xs mr-2">おすすめ</span>
-                                    全問ランダム演習
-                                </h2>
-                                <p className="text-indigo-100 text-sm mb-4">全185問からランダムに出題されます。</p>
+                        <div className="max-w-2xl mx-auto px-4 pt-6 space-y-6 fade-in">
+                            {/* ヒーローカード */}
+                            <div className="bg-gradient-to-br from-primary to-indigo-700 rounded-3xl p-6 text-white shadow-xl shadow-indigo-200">
+                                <h1 className="text-2xl font-bold mb-2">目指せ完全制覇！</h1>
+                                <p className="text-indigo-100 text-sm mb-6 opacity-90">
+                                    現在 {completedQuestions.length} / {quizDatabase.length} 問クリア中
+                                </p>
+                                
                                 <div className="grid grid-cols-2 gap-3">
-                                    <button onClick={() => startQuiz('ALL', 'choice')} className="bg-white text-indigo-600 py-2 rounded-lg font-bold hover:bg-indigo-50 transition text-sm">
-                                        選択肢あり
+                                    <button 
+                                        onClick={() => startQuiz('choice', 'ALL')}
+                                        className="bg-white text-primary py-3 px-4 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition active:scale-95 flex flex-col items-center justify-center gap-1"
+                                    >
+                                        <span className="text-lg">選択肢モード</span>
+                                        <span className="text-xs font-normal text-gray-500">4択から選ぶ</span>
                                     </button>
-                                    <button onClick={() => startQuiz('ALL', 'think')} className="bg-indigo-800 text-white py-2 rounded-lg font-bold hover:bg-indigo-900 transition text-sm border border-indigo-400">
-                                        記述(暗記)
+                                    <button 
+                                        onClick={() => startQuiz('think', 'ALL')}
+                                        className="bg-indigo-800 text-white py-3 px-4 rounded-xl font-bold shadow-inner border border-indigo-600 hover:bg-indigo-900 transition active:scale-95 flex flex-col items-center justify-center gap-1"
+                                    >
+                                        <span className="text-lg">暗記モード</span>
+                                        <span className="text-xs font-normal text-indigo-300">答えを隠す</span>
                                     </button>
                                 </div>
                             </div>
 
-                            <h3 className="text-slate-500 font-bold mb-3 pl-1">章ごとに学習</h3>
-                            <div className="space-y-3">
-                                {categories.map((cat, idx) => (
-                                    <div key={idx} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                        <div>
-                                            <div className="font-bold text-slate-700">{cat}</div>
-                                            <div className="text-xs text-slate-400">{quizDatabase.filter(q => q.category === cat).length}問</div>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => startQuiz(cat, 'choice')} className="flex-1 sm:flex-none px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm font-bold transition">
-                                                選択肢
-                                            </button>
-                                            <button onClick={() => startQuiz(cat, 'think')} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-sm font-bold transition">
-                                                暗記
-                                            </button>
-                                        </div>
+                            {/* 弱点克服 */}
+                            {wrongQuestions.length > 0 && (
+                                <div className="bg-red-50 border border-red-100 rounded-2xl p-5 flex items-center justify-between shadow-sm">
+                                    <div>
+                                        <div className="text-red-800 font-bold mb-1">弱点克服</div>
+                                        <div className="text-xs text-red-600">間違えた問題が {wrongQuestions.length} 問あります</div>
                                     </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            // --- 結果画面 ---
-            if (gameState === 'result') {
-                const percentage = Math.round((score / questions.length) * 100);
-                return (
-                    <div className="flex flex-col h-full items-center justify-center p-6 bg-slate-50">
-                        <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md text-center fade-in border border-slate-100">
-                            <h2 className="text-slate-500 font-bold mb-2">{selectedCategory}</h2>
-                            <div className="text-5xl font-black text-indigo-600 mb-4">
-                                {score} <span className="text-xl text-slate-400">/ {questions.length}</span>
-                            </div>
-                            <div className="w-full bg-slate-100 rounded-full h-3 mb-6 overflow-hidden">
-                                <div className="bg-indigo-500 h-full transition-all duration-1000" style={{width: `${percentage}%`}}></div>
-                            </div>
-                            <p className="text-lg font-bold text-slate-700 mb-8">
-                                {percentage === 100 ? "完璧です！素晴らしい！🎉" : percentage >= 80 ? "合格点です！その調子！👍" : "復習して完璧を目指そう！💪"}
-                            </p>
-                            <button onClick={() => setGameState('menu')} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition">
-                                メニューに戻る
-                            </button>
-                        </div>
-                    </div>
-                );
-            }
-
-            // --- クイズプレイ画面 ---
-            const currentQ = questions[currentIndex];
-            
-            return (
-                <div className="flex flex-col h-full bg-slate-50">
-                    {/* ヘッダー */}
-                    <div className="bg-white p-4 shadow-sm z-10 flex justify-between items-center border-b border-slate-100">
-                        <div className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded truncate max-w-[150px]">{selectedCategory}</div>
-                        <div className="font-bold text-slate-600 text-sm whitespace-nowrap">
-                            {currentIndex + 1} <span className="text-slate-400">/ {questions.length}</span>
-                        </div>
-                    </div>
-                    <div className="w-full bg-slate-200 h-1">
-                        <div className="bg-indigo-500 h-1 transition-all duration-300" style={{width: `${((currentIndex + 1) / questions.length) * 100}%`}}></div>
-                    </div>
-
-                    {/* メインコンテンツ */}
-                    <div className="flex-1 overflow-y-auto p-4 pb-24 max-w-2xl mx-auto w-full">
-                        {/* 問題文 */}
-                        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 mb-6">
-                            <h2 className="text-lg md:text-xl font-bold text-slate-800 leading-relaxed mb-4">
-                                {currentQ.question}
-                            </h2>
-                            <div className="text-right">
-                                <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">ノート: {currentQ.note}</span>
-                            </div>
-                        </div>
-
-                        {/* 選択肢エリア */}
-                        <div className="relative">
-                            {/* 記述モード時のマスク (choicesHiddenがtrueの時だけ表示) */}
-                            {choicesHidden && (
-                                <div className="absolute inset-0 z-10 bg-slate-50/90 backdrop-blur-[2px] rounded-xl flex items-center justify-center border-2 border-dashed border-slate-300">
-                                    <div className="text-center p-6">
-                                        <div className="mb-4 text-slate-600 font-bold text-lg">答えを思い浮かべてください</div>
-                                        <button 
-                                            onClick={revealChoices}
-                                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-full font-bold shadow-lg transition transform hover:scale-105"
-                                        >
-                                            選択肢を表示する
-                                        </button>
-                                    </div>
+                                    <button 
+                                        onClick={() => startQuiz('choice', null, true)}
+                                        className="bg-red-500 text-white px-5 py-2 rounded-lg font-bold text-sm shadow-md shadow-red-200 active:scale-95 transition"
+                                    >
+                                        復習する
+                                    </button>
                                 </div>
                             )}
 
-                            {/* 選択肢リスト (常にレンダリングはされるが、マスクで隠される場合がある) */}
-                            <div className={`space-y-3 transition-opacity duration-300 ${choicesHidden ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
-                                {currentQ.shuffledOptions.map((option, idx) => {
-                                    let btnClass = "w-full p-4 rounded-xl text-left font-medium transition-all duration-200 border-2 relative ";
-                                    
-                                    if (showAnswer) {
-                                        if (option === currentQ.answer) {
-                                            btnClass += "bg-green-50 border-green-500 text-green-800";
-                                        } else if (option === userSelected) {
-                                            btnClass += "bg-red-50 border-red-500 text-red-800";
-                                        } else {
-                                            btnClass += "bg-white border-slate-100 text-slate-400 opacity-50";
-                                        }
-                                    } else {
-                                        btnClass += "bg-white border-slate-100 hover:border-indigo-400 hover:bg-indigo-50 text-slate-700 shadow-sm";
-                                    }
-
-                                    return (
-                                        <button
-                                            key={idx}
-                                            onClick={() => !showAnswer && handleAnswer(option)}
-                                            disabled={showAnswer || choicesHidden}
-                                            className={btnClass}
-                                        >
-                                            <span className="mr-3 inline-block w-6 text-center font-bold text-slate-300">{idx+1}.</span>
-                                            {option}
-                                            {showAnswer && option === currentQ.answer && (
-                                                <span className="absolute right-4 text-green-600 font-bold">◎ 正解</span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
+                            {/* カテゴリ一覧 */}
+                            <div>
+                                <h2 className="text-gray-500 font-bold text-sm mb-3 ml-1">分野別トレーニング</h2>
+                                <div className="space-y-3">
+                                    {categories.map((cat, idx) => (
+                                        <div key={idx} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition hover:shadow-md">
+                                            <div>
+                                                <div className="font-bold text-gray-800 text-sm md:text-base">{cat}</div>
+                                                <div className="text-xs text-gray-400 mt-1">
+                                                    全{quizDatabase.filter(q => q.category === cat).length}問
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2 shrink-0">
+                                                <button onClick={() => startQuiz('choice', cat)} className="flex-1 sm:flex-none px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-xs font-bold transition hover:bg-gray-100 border border-gray-200">
+                                                    選択肢
+                                                </button>
+                                                <button onClick={() => startQuiz('think', cat)} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 text-primary rounded-lg text-xs font-bold transition hover:bg-indigo-100 border border-indigo-100">
+                                                    暗記
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
+                );
+            }
 
-                    {/* 正解表示フッター */}
-                    {showAnswer && (
-                        <div className="bg-white border-t border-slate-200 p-4 fixed bottom-0 left-0 right-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] fade-in">
-                            <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
-                                <div className="flex-1">
-                                    <div className="text-xs font-bold text-slate-400 mb-1">正解</div>
-                                    <div className="text-lg font-bold text-green-600 leading-tight">{currentQ.answer}</div>
+            // --- 画面: クイズ中 ---
+            const currentQ = questions[currentIndex];
+            const progress = ((currentIndex + 1) / questions.length) * 100;
+
+            if (gameState === 'playing') {
+                return (
+                    <div className="h-screen bg-bg flex flex-col font-sans overflow-hidden">
+                        {/* プログレスバー */}
+                        <div className="h-1.5 w-full bg-gray-200">
+                            <div className="h-full bg-secondary transition-all duration-500 ease-out" style={{ width: `${progress}%` }}></div>
+                        </div>
+                        
+                        {/* ヘッダー */}
+                        <div className="px-4 py-3 flex justify-between items-end bg-white border-b border-gray-100 shadow-sm z-10">
+                            <div>
+                                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">{selectedCategory}</div>
+                                <div className="text-sm font-bold text-gray-800">
+                                    第 <span className="text-xl text-primary font-black mx-0.5">{currentIndex + 1}</span> 問 
+                                    <span className="text-gray-400 text-xs font-normal ml-1">/ {questions.length}</span>
                                 </div>
-                                <button 
-                                    onClick={nextQuestion}
-                                    className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg flex items-center"
-                                >
-                                    次へ <span className="ml-2">→</span>
+                            </div>
+                            <button onClick={restart} className="text-xs font-bold text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition">中断する</button>
+                        </div>
+
+                        {/* メインエリア (スクロール可能) */}
+                        <div className="flex-1 overflow-y-auto p-4 pb-32 max-w-2xl mx-auto w-full">
+                            {/* 問題カード */}
+                            <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 mb-6 slide-up">
+                                <h2 className="text-lg md:text-xl font-bold text-gray-800 leading-relaxed tracking-wide mb-6">
+                                    {currentQ.question}
+                                </h2>
+                                <div className="flex justify-end">
+                                    <span className="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded border border-gray-100">
+                                        出典: {currentQ.note}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* 選択肢エリア */}
+                            <div className="relative">
+                                {/* 暗記モード用マスク */}
+                                {choicesHidden && (
+                                    <div className="absolute inset-0 z-10">
+                                        <button 
+                                            onClick={revealChoices}
+                                            className="w-full h-full bg-indigo-50/80 backdrop-blur-sm rounded-2xl border-2 border-dashed border-indigo-200 flex flex-col items-center justify-center p-8 transition hover:bg-indigo-100/80 active:scale-[0.99]"
+                                        >
+                                            <div className="bg-white rounded-full p-3 shadow-md mb-3">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                            </div>
+                                            <span className="font-bold text-indigo-900 text-sm">タップして答えを表示</span>
+                                        </button>
+                                    </div>
+                                )}
+
+                                <div className={`space-y-3 transition-all duration-300 ${choicesHidden ? 'opacity-20 blur-[2px]' : 'opacity-100'}`}>
+                                    {currentQ.shuffledOptions.map((option, idx) => {
+                                        let btnClass = "w-full p-4 md:py-5 rounded-2xl text-left font-bold text-sm md:text-base transition-all duration-200 border-2 relative active:scale-[0.98] ";
+                                        
+                                        if (showAnswer) {
+                                            if (option === currentQ.answer) {
+                                                btnClass += "bg-green-50 border-green-500 text-green-800 shadow-sm";
+                                            } else if (option === userSelected) {
+                                                btnClass += "bg-red-50 border-red-500 text-red-800";
+                                            } else {
+                                                btnClass += "bg-white border-transparent text-gray-300";
+                                            }
+                                        } else {
+                                            btnClass += "bg-white border-transparent shadow-sm hover:border-indigo-200 hover:bg-gray-50 text-gray-700";
+                                        }
+
+                                        return (
+                                            <button
+                                                key={idx}
+                                                onClick={() => !showAnswer && !choicesHidden && handleAnswer(option)}
+                                                disabled={showAnswer || choicesHidden}
+                                                className={btnClass}
+                                            >
+                                                <div className="flex items-center">
+                                                    <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mr-3 text-xs font-bold ${
+                                                        showAnswer && option === currentQ.answer ? 'bg-green-200 text-green-700' : 
+                                                        showAnswer && option === userSelected ? 'bg-red-200 text-red-700' :
+                                                        'bg-gray-100 text-gray-400'
+                                                    }`}>
+                                                        {idx + 1}
+                                                    </span>
+                                                    <span>{option}</span>
+                                                </div>
+                                                {showAnswer && option === currentQ.answer && (
+                                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-green-600 font-bold bg-white px-2 py-1 rounded-lg text-xs shadow-sm border border-green-100">
+                                                        正解
+                                                    </div>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* フッター: 解説 & 次へ */}
+                        {showAnswer && (
+                            <div className="bg-white/95 backdrop-blur-md border-t border-gray-100 p-4 fixed bottom-0 left-0 right-0 z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] fade-in">
+                                <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-[10px] font-bold text-gray-400 mb-0.5">正解は...</div>
+                                        <div className="text-lg font-bold text-green-600 truncate">{currentQ.answer}</div>
+                                    </div>
+                                    <button 
+                                        onClick={nextQuestion}
+                                        className="bg-primary text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-200 active:scale-95 transition flex items-center shrink-0"
+                                    >
+                                        <span>次へ</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+
+            // --- 画面: 結果発表 ---
+            if (gameState === 'result') {
+                const percentage = Math.round((score / questions.length) * 100);
+                return (
+                    <div className="min-h-screen bg-bg flex items-center justify-center p-6 font-sans">
+                        <div className="bg-white p-8 rounded-[2rem] shadow-xl w-full max-w-md text-center fade-in relative overflow-hidden">
+                            {/* 背景装飾 */}
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary to-secondary"></div>
+                            
+                            <h2 className="text-gray-400 text-xs font-bold tracking-widest uppercase mb-6">{selectedCategory}</h2>
+                            
+                            <div className="mb-8 relative inline-block">
+                                <svg className="w-40 h-40 transform -rotate-90">
+                                    <circle cx="80" cy="80" r="70" stroke="#F3F4F6" strokeWidth="12" fill="transparent" />
+                                    <circle cx="80" cy="80" r="70" stroke="#4F46E5" strokeWidth="12" fill="transparent" strokeDasharray={440} strokeDashoffset={440 - (440 * percentage) / 100} className="transition-all duration-1000 ease-out" />
+                                </svg>
+                                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                                    <span className="text-4xl font-black text-gray-800">{score}</span>
+                                    <span className="text-gray-400 text-sm font-bold block mt-1">/ {questions.length}</span>
+                                </div>
+                            </div>
+                            
+                            <p className="text-lg font-bold text-gray-700 mb-8">
+                                {percentage === 100 ? "素晴らしい！完全制覇です！🏆" : 
+                                 percentage >= 80 ? "惜しい！合格圏内です！✨" : 
+                                 "復習して満点を目指そう！💪"}
+                            </p>
+
+                            <div className="space-y-3">
+                                <button onClick={() => startQuiz(studyMode, selectedCategory === '全問チャレンジ' ? 'ALL' : (selectedCategory === '弱点克服' ? null : selectedCategory), selectedCategory === '弱点克服')} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:shadow-xl transition active:scale-95">
+                                    もう一度挑戦する
+                                </button>
+                                <button onClick={restart} className="w-full bg-white text-gray-500 py-4 rounded-xl font-bold border border-gray-100 hover:bg-gray-50 transition active:scale-95">
+                                    メニューに戻る
                                 </button>
                             </div>
                         </div>
-                    )}
-                </div>
-            );
+                    </div>
+                );
+            }
+            return null;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
